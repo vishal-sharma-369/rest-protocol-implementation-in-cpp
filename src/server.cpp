@@ -11,6 +11,7 @@
 #include <sstream>
 #include <thread>
 #include <fstream>
+#include <zlib.h>
 
 // Function to split the message based on delimiter(usually CRLF) -> returns the vector containing [request_line, headers, request_body]
 std::vector<std::string> split_message(const std::string &message, const std::string& delim) {
@@ -79,6 +80,33 @@ std::string handle_file_request(bool is_get_request, std::string dir, std::strin
   return message;
 }
 
+// Function for compressing the responses using gzip compression technique
+std::string gzip_compress(const std::string &data) {
+    z_stream zs;
+    memset(&zs, 0, sizeof(zs));
+    if (deflateInit2(&zs, Z_BEST_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+        throw std::runtime_error("deflateInit2 failed while compressing.");
+    }
+    zs.next_in = (Bytef *)data.data();
+    zs.avail_in = data.size();
+    int ret;
+    char outbuffer[32768];
+    std::string outstring;
+    do {
+        zs.next_out = reinterpret_cast<Bytef *>(outbuffer);
+        zs.avail_out = sizeof(outbuffer);
+        ret = deflate(&zs, Z_FINISH);
+        if (outstring.size() < zs.total_out) {
+            outstring.append(outbuffer, zs.total_out - outstring.size());
+        }
+    } while (ret == Z_OK);
+    deflateEnd(&zs);
+    if (ret != Z_STREAM_END) {
+        throw std::runtime_error("Exception during zlib compression: (" + std::to_string(ret) + ") " + zs.msg);
+    }
+    return outstring;
+}
+
 int handle_http(int client_fd, struct sockaddr_in client_addr, std::string dir)
 {
 
@@ -125,7 +153,9 @@ int handle_http(int client_fd, struct sockaddr_in client_addr, std::string dir)
         std::vector<std::string> accept_tokens = split_message(headers[i], " ");
         for(int i = 1; i < accept_tokens.size(); i++)
         {
-          accept_encodings.push_back(accept_tokens[i].substr(0, accept_tokens[i].length()-1));
+          int remove_comma = 1;
+          if(i == accept_tokens.size()-1) remove_comma = 0;
+          accept_encodings.push_back(accept_tokens[i].substr(0, accept_tokens[i].length()-remove_comma));
         }
       }
     }
@@ -137,7 +167,8 @@ int handle_http(int client_fd, struct sockaddr_in client_addr, std::string dir)
     }
     if(accept_encoding_contains_gzip == true)
     {
-      message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: "+std::to_string(split_paths[2].length())+"\r\n\r\n"+split_paths[2];
+      std::string text = gzip_compress(split_paths[2]);
+      message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: "+std::to_string(text.length())+"\r\n\r\n"+text;
     }
     else 
     {
@@ -169,7 +200,14 @@ int handle_http(int client_fd, struct sockaddr_in client_addr, std::string dir)
     message = "HTTP/1.1 404 Not Found\r\n\r\n";
   }
 
-  std::cout<<"Response: "<<message<<std::endl;
+  try 
+  {
+    std::cout<<"Response: "<<message<<std::endl;
+  }
+  catch(...)
+  {
+    std::cout<<"Skipping logging response as it contains binary data"<<std::endl;
+  }
   ssize_t bsent = send(client_fd, message.c_str(), message.size(), 0);
 
   return 0;
@@ -194,7 +232,7 @@ int main(int argc, char **argv) {
 
   // Since the tester restarts your program quite often, setting SO_REUSEADDR
   // ensures that we don't run into 'Address already in use' errors
-  int reuse = 1;
+  ssize_t reuse = 1;
   if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
     std::cerr << "setsockopt failed\n";
     return 1;

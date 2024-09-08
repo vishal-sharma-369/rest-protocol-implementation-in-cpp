@@ -51,6 +51,12 @@
     "streambuf": "cpp",
     "text_encoding": "cpp",
     "typeinfo": "cpp",
-    "variant": "cpp"
+    "variant": "cpp",
+    "ratio": "cpp",
+    "fstream": "cpp",
+    "semaphore": "cpp",
+    "sstream": "cpp",
+    "stop_token": "cpp",
+    "thread": "cpp"
   }
 }
