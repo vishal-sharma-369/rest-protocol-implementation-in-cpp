@@ -7,6 +7,39 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include<vector>
+#include<sstream>
+
+// Function to split the message based on delimiter(usually CRLF) -> returns the vector containing [request_line, headers, request_body]
+std::vector<std::string> split_message(const std::string &message, const std::string& delim) {
+  std::vector<std::string> toks;
+  std::stringstream ss = std::stringstream{message};
+  std::string line;
+  while (getline(ss, line, *delim.begin())) {
+    toks.push_back(line);
+    ss.ignore(delim.length() - 1);
+  }
+  return toks;
+}
+
+// Function to get the requested path in the http request
+std::string get_path(std::string request) {
+  std::vector<std::string> toks = split_message(request, "\r\n");
+  std::vector<std::string> path_toks = split_message(toks[0], " ");
+  return path_toks[1];
+}
+
+// Function to get the client request header
+std::vector<std::string> get_header(std::string request)
+{
+  std::vector<std::string> toks = split_message(request, "\r\n");
+  std::vector<std::string> ans;
+  for(int i = 1; i < toks.size()-2; i++)
+  {
+    ans.push_back(toks[i]);
+  }
+  return ans;
+}
 
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
@@ -53,8 +86,10 @@ int main(int argc, char **argv) {
   // send(client, message.c_str(), message.length(), 0);
   std::cout << "Client connected\n";
 
+// Buffer to read the message / request from the client
   std::string client_message(1024, '\0');
 
+// Reading the message/request from the client
   ssize_t brecvd = recv(client_fd, (void*) &client_message[0], client_message.max_size(), 0);
   if(brecvd < 0)
   {
@@ -64,10 +99,49 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+// Logging the received client request/message
   std::cerr<<"Client Message (length: "<<client_message.size()<<")"<<std::endl;
   std::clog<<client_message<<std::endl;
 
-  std::string message = client_message.starts_with("GET / HTTP/1.1\r\n") ? "HTTP/1.1 200 OK\r\n\r\n" : "HTTP/1.1 404 Not Found\r\n\r\n";
+  // std::string message = client_message.starts_with("GET / HTTP/1.1\r\n") ? "HTTP/1.1 200 OK\r\n\r\n" : "HTTP/1.1 404 Not Found\r\n\r\n";
+  // std::string str = client_message.substr(10, client_message.find(' ', 10) - 10);
+  // std::string message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+std::to_string(str.length())+"\r\n\r\n"+str;
+
+// Fetch the requested path in the client request
+  std::string path = get_path(client_message);
+
+// Split the requested paths into discrete levels
+  std::vector<std::string> split_paths = split_message(path, "/");
+
+// Create the server response to client(message) as per the requested path
+  std::string message;
+  if(path == "/")
+  {
+    message = "HTTP/1.1 200 OK\r\n\r\n";
+  }
+  else if(split_paths[1]=="echo")
+  {
+    message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+std::to_string(split_paths[2].length())+"\r\n\r\n"+split_paths[2];
+  }
+  else if(split_paths[1]=="user-agent")
+  {
+    std::vector<std::string> headers = get_header(client_message);
+    std::string user_agent;
+    for(int i = 0; i < headers.size(); i++)
+    {
+      if(headers[i].starts_with("User-Agent"))
+      {
+        user_agent = split_message(headers[i], " ")[1];
+      }
+    }
+    message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+std::to_string(user_agent.length())+"\r\n\r\n"+user_agent;
+  }
+  else
+  {
+    message = "HTTP/1.1 404 Not Found\r\n\r\n";
+  }
+
+  std::cout<<"Response: "<<message<<std::endl;
   ssize_t bsent = send(client_fd, message.c_str(), message.size(), 0);
 
   close(server_fd);
