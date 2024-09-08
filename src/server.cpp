@@ -116,8 +116,35 @@ int handle_http(int client_fd, struct sockaddr_in client_addr, std::string dir)
   }
   else if(split_paths[1]=="echo")
   {
-    message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+std::to_string(split_paths[2].length())+"\r\n\r\n"+split_paths[2];
+    std::vector<std::string> headers = get_header(client_message);
+    std::vector<std::string> accept_encodings;
+    for(int i = 0; i < headers.size(); i++)
+    {
+      if(headers[i].starts_with("Accept-Encoding"))
+      {
+        std::vector<std::string> accept_tokens = split_message(headers[i], " ");
+        for(int i = 1; i < accept_tokens.size(); i++)
+        {
+          accept_encodings.push_back(accept_tokens[i].substr(0, accept_tokens[i].length()-1));
+        }
+      }
+    }
+
+    bool accept_encoding_contains_gzip = false;
+    for(int i = 0; i < accept_encodings.size(); i++)
+    {
+      if(accept_encodings[i] == "gzip") accept_encoding_contains_gzip = true;
+    }
+    if(accept_encoding_contains_gzip == true)
+    {
+      message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: "+std::to_string(split_paths[2].length())+"\r\n\r\n"+split_paths[2];
+    }
+    else 
+    {
+      message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+std::to_string(split_paths[2].length())+"\r\n\r\n"+split_paths[2];
+    }
   }
+
   else if(split_paths[1]=="user-agent")
   {
     std::vector<std::string> headers = get_header(client_message);
