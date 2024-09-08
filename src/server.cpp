@@ -10,6 +10,7 @@
 #include<vector>
 #include<sstream>
 #include<thread>
+#include<fstream>
 
 // Function to split the message based on delimiter(usually CRLF) -> returns the vector containing [request_line, headers, request_body]
 std::vector<std::string> split_message(const std::string &message, const std::string& delim) {
@@ -42,7 +43,7 @@ std::vector<std::string> get_header(std::string request)
   return ans;
 }
 
-int handle_http(int client_fd, struct sockaddr_in client_addr)
+int handle_http(int client_fd, struct sockaddr_in client_addr, std::string dir)
 {
 
 // Buffer to read the message / request from the client
@@ -94,6 +95,22 @@ int handle_http(int client_fd, struct sockaddr_in client_addr)
     }
     message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "+std::to_string(user_agent.length())+"\r\n\r\n"+user_agent;
   }
+  else if(split_paths[1]=="files")
+  {
+    std::string filename = split_paths[2];
+    std::ifstream ifs(dir+filename);
+
+    if(ifs.good())
+    {
+      std::stringstream content;
+      content << ifs.rdbuf();
+      message = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: "+std::to_string(content.str().length())+"\r\n\r\n"+content.str()+"\r\n";
+    } 
+    else
+    {
+      message = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+  }
   else
   {
     message = "HTTP/1.1 404 Not Found\r\n\r\n";
@@ -109,6 +126,12 @@ int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
+
+  std::string dir;
+  if(argc == 3 && strcmp(argv[1], "--directory") == 0)
+  {
+    dir = argv[2];
+  }
 
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
@@ -155,7 +178,8 @@ int main(int argc, char **argv) {
   {
     client_fd = accept(server_fd, (struct sockaddr*)& client_addr, (socklen_t*)&client_addr_len);
     std::cout<< "Client connected\n";
-    std::thread th(handle_http, client_fd, client_addr);
+    // std::thread th(handle_http, client_fd, client_addr, dir);
+    std::thread th(handle_http, client_fd, client_addr, dir);
     th.detach();
   }
 
