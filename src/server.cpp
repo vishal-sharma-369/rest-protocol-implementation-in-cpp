@@ -7,10 +7,10 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include<vector>
-#include<sstream>
-#include<thread>
-#include<fstream>
+#include <vector>
+#include <sstream>
+#include <thread>
+#include <fstream>
 
 // Function to split the message based on delimiter(usually CRLF) -> returns the vector containing [request_line, headers, request_body]
 std::vector<std::string> split_message(const std::string &message, const std::string& delim) {
@@ -41,6 +41,42 @@ std::vector<std::string> get_header(std::string request)
     ans.push_back(toks[i]);
   }
   return ans;
+}
+
+std::string get_body(std::string request)
+{
+  std::vector<std::string> toks = split_message(request, "\r\n");
+  return toks[toks.size()-1];
+}
+
+// Here we assume that the file request will only comprise of GET and POST requests.
+std::string handle_file_request(bool is_get_request, std::string dir, std::string filename, std::string body = "")
+{
+  std::string message;
+  if(is_get_request)
+  {
+    std::ifstream ifs(dir+filename);
+
+    if(ifs.good())
+    {
+      std::stringstream content;
+      content << ifs.rdbuf();
+      message = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: "+std::to_string(content.str().length())+"\r\n\r\n"+content.str()+"\r\n";
+    } 
+    else
+    {
+      message = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+  }
+  else 
+  {
+    std::ofstream ofs(dir+filename);
+    ofs << body;
+    message = "HTTP/1.1 201 Created\r\n\r\n";
+    ofs.close();
+  }
+
+  return message;
 }
 
 int handle_http(int client_fd, struct sockaddr_in client_addr, std::string dir)
@@ -98,18 +134,8 @@ int handle_http(int client_fd, struct sockaddr_in client_addr, std::string dir)
   else if(split_paths[1]=="files")
   {
     std::string filename = split_paths[2];
-    std::ifstream ifs(dir+filename);
 
-    if(ifs.good())
-    {
-      std::stringstream content;
-      content << ifs.rdbuf();
-      message = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: "+std::to_string(content.str().length())+"\r\n\r\n"+content.str()+"\r\n";
-    } 
-    else
-    {
-      message = "HTTP/1.1 404 Not Found\r\n\r\n";
-    }
+    message = handle_file_request(client_message.starts_with("GET"), dir, filename, get_body(client_message));
   }
   else
   {
